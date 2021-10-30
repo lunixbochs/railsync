@@ -24,14 +24,15 @@ func pubkey(sk *device.NoisePrivateKey) (pk device.NoisePublicKey) {
 	return
 }
 
-type readFunc func(buf []byte) int
-type writeFunc func(buf []byte)
-
 type LoopTun struct {
-	mtu     int
-	events  chan tun.Event
-	readfn  readFunc
-	writefn writeFunc
+	In  <-chan []byte
+	Out chan<- []byte
+
+	in  chan []byte
+	out chan []byte
+
+	mtu    int
+	events chan tun.Event
 }
 
 func (tun *LoopTun) Name() (string, error) { return "loop", nil }
@@ -45,25 +46,36 @@ func (tun *LoopTun) Events() chan tun.Event {
 
 func (tun *LoopTun) Close() error {
 	close(tun.events)
+	close(tun.in)
 	return nil
 }
 
 func (tun *LoopTun) Read(buf []byte, offset int) (int, error) {
-	return tun.readfn(buf[offset:]), nil
+	if packet, ok := <-tun.out; ok {
+		dst := buf[offset:]
+		copy(dst, packet)
+		return len(packet), nil
+	}
+	return 0, os.ErrClosed
 }
 
 func (tun *LoopTun) Write(buf []byte, offset int) (int, error) {
-	packet := buf[offset:]
-	tun.writefn(packet)
+	packet := make([]byte, len(buf)-offset)
+	tun.in <- packet
 	return len(packet), nil
 }
 
-func CreateLoopTun(mtu int, readfn readFunc, writefn writeFunc) tun.Device {
+func NewLoopTun(mtu int, queuesize int) *LoopTun {
+	in := make(chan []byte, queuesize)
+	out := make(chan []byte, queuesize)
 	dev := &LoopTun{
-		mtu:     mtu,
-		events:  make(chan tun.Event, 10),
-		readfn:  readfn,
-		writefn: writefn,
+		In:  in,
+		Out: out,
+		in:  in,
+		out: out,
+
+		mtu:    mtu,
+		events: make(chan tun.Event, 10),
 	}
 	dev.events <- tun.EventUp
 	return dev
@@ -103,34 +115,14 @@ func main() {
 	localhost := net.ParseIP("127.0.0.1")
 
 	pingPacket := tuntest.Ping(localhost, localhost)
-	/*
-		tun1 := CreateLoopTun(1420,
-			func(p []byte) int {
-				copy(p, pingPacket)
-				return len(pingPacket)
-			},
-			func(p []byte) {
-				// fmt.Println("Write", p)
-			},
-		)
-		tun2 := CreateLoopTun(1420,
-			func(p []byte) int {
-				copy(p, pingPacket)
-				return len(pingPacket)
-			},
-			func(p []byte) {
-				// fmt.Println("Write", p)
-			},
-		)
-	*/
-	tun1 := tuntest.NewChannelTUN()
-	tun2 := tuntest.NewChannelTUN()
+	tun1 := NewLoopTun(1420, 1024)
+	tun2 := NewLoopTun(1420, 1024)
 
-	dev1 := device.NewDevice(tun1.TUN(), conn.NewDefaultBind(), device.NewLogger(9999, "dev1 "))
+	dev1 := device.NewDevice(tun1, conn.NewDefaultBind(), device.NewLogger(9999, "dev1 "))
 	dev1.IpcSet("private_key=" + hex.EncodeToString(key1[:]))
 	dev1.Up()
 
-	dev2 := device.NewDevice(tun2.TUN(), conn.NewDefaultBind(), device.NewLogger(9999, "dev2 "))
+	dev2 := device.NewDevice(tun2, conn.NewDefaultBind(), device.NewLogger(9999, "dev2 "))
 	dev2.IpcSet("private_key=" + hex.EncodeToString(key2[:]))
 	dev2.Up()
 
@@ -145,14 +137,14 @@ endpoint=127.0.0.1:%s
 allowed_ip=0.0.0.0/0`, hex.EncodeToString(pubkey1[:]), port1))
 
 	go func() {
-		for packet := range tun2.Inbound {
+		for packet := range tun2.In {
 			fmt.Println("recv", len(packet))
 		}
 	}()
 
 	for {
 		fmt.Println("send", len(pingPacket))
-		tun1.Outbound <- pingPacket
+		tun1.Out <- pingPacket
 		time.Sleep(1 * time.Second)
 	}
 
