@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -10,7 +11,6 @@ import (
 	"github.com/pkg/errors"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/tuntest"
 )
 
 type Pipe struct {
@@ -66,7 +66,7 @@ func (p *Pipe) Connect(host string, port uint16, pubkey device.NoisePublicKey) e
 	}
 	p.Device.IpcSet(fmt.Sprintf(`public_key=%s
 endpoint=%s:%d
-allowed_ip=0.0.0.0/0`, hex.EncodeToString(pubkey[:]), ip, port))
+allowed_ip=169.254.0.0/16`, hex.EncodeToString(pubkey[:]), ip, port))
 	return nil
 }
 
@@ -75,27 +75,26 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
 	pipe2, err := NewPipe(1420, 1024)
 	if err != nil {
 		panic(err)
 	}
-
 	pipe1.Connect("127.0.0.1", pipe2.Port(), pipe2.Pubkey())
 	pipe2.Connect("127.0.0.1", pipe1.Port(), pipe1.Pubkey())
 
-	localhost := net.ParseIP("127.0.0.1")
-	pingPacket := tuntest.Ping(localhost, localhost)
-
 	go func() {
 		for packet := range pipe2.In {
-			fmt.Println("recv", len(packet))
+			fmt.Println("recv", packet)
 		}
 	}()
 
+	nonce := uint32(0)
 	for {
-		fmt.Println("send", len(pingPacket))
-		pipe1.Out <- pingPacket
+		nonce += 1
+		packet := make([]byte, 4)
+		binary.BigEndian.PutUint32(packet, nonce)
+		fmt.Println("send", packet)
+		pipe1.Out <- packet
 		time.Sleep(1 * time.Second)
 	}
 

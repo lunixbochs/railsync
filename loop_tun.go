@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/binary"
 	"os"
 
+	"golang.org/x/net/ipv4"
+	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
@@ -34,15 +37,25 @@ func (tun *LoopTun) Close() error {
 
 func (tun *LoopTun) Read(buf []byte, offset int) (int, error) {
 	if packet, ok := <-tun.out; ok {
-		dst := buf[offset:]
-		copy(dst, packet)
-		return len(packet), nil
+		header := buf[offset : offset+ipv4.HeaderLen]
+		body := buf[offset+ipv4.HeaderLen:]
+		lengthField := header[device.IPv4offsetTotalLength : device.IPv4offsetTotalLength+2]
+		// write fake ipv4 header
+		header[0] = 4 << 4
+		binary.BigEndian.PutUint16(lengthField, uint16(ipv4.HeaderLen+len(packet)))
+		copy(header[device.IPv4offsetSrc:], []byte{169, 254, 0, 1})
+		copy(header[device.IPv4offsetDst:], []byte{169, 254, 0, 1})
+		copy(body, packet)
+		return ipv4.HeaderLen + len(packet), nil
 	}
 	return 0, os.ErrClosed
 }
 
 func (tun *LoopTun) Write(buf []byte, offset int) (int, error) {
+	// ignore ipv4 header
+	offset += ipv4.HeaderLen
 	packet := make([]byte, len(buf)-offset)
+	copy(packet, buf[offset:])
 	tun.in <- packet
 	return len(packet), nil
 }
