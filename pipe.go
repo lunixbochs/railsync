@@ -60,6 +60,10 @@ func (p *Pipe) Pubkey() device.NoisePublicKey {
 	return p.pubkey
 }
 
+func (p *Pipe) PubkeyHex() string {
+	return hex.EncodeToString(p.pubkey[:])
+}
+
 func (p *Pipe) Connect(host string, port uint16, pubkey device.NoisePublicKey) error {
 	ip := net.ParseIP(host)
 	if ip == nil {

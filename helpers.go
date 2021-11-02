@@ -41,3 +41,28 @@ func pubkey(sk *device.NoisePrivateKey) (pk device.NoisePublicKey) {
 	curve25519.ScalarBaseMult(apk, ask)
 	return
 }
+
+func toHumanBits(number uint64) string {
+	number *= 8
+	table := []string{"bit", "kbit", "mbit", "gbit", "tbit", "pbit", "ebit"}
+	fnumber := float64(number)
+	for i, suffix := range table {
+		if fnumber < 1024 || i == len(table)-1 {
+			return fmt.Sprintf("%.2f %s", fnumber, suffix)
+		}
+		fnumber /= 1024
+	}
+	return fmt.Sprintf("%d bit", number)
+}
+
+func toHumanBytes(number uint64) string {
+	table := []string{"B", "K", "M", "G", "T", "P", "E"}
+	fnumber := float64(number)
+	for i, suffix := range table {
+		if fnumber < 1024 || i == len(table)-1 {
+			return fmt.Sprintf("%.2f%s", fnumber, suffix)
+		}
+		fnumber /= 1024
+	}
+	return fmt.Sprintf("%dB", number)
+}
