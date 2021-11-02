@@ -73,7 +73,7 @@ allowed_ip=169.254.0.0/16`, hex.EncodeToString(pubkey[:]), ip, port))
 	return nil
 }
 
-func main() {
+func selftest() {
 	pipe1, err := NewPipe(1420, 1)
 	if err != nil {
 		panic(err)
@@ -139,6 +139,8 @@ func main() {
 			fmt.Printf("[send] elapsed=%.2fs  packets=%d  data=%.2f GB  rate=%.3f gbit/s\n", elapsed, nonce, transferred, rate)
 		}
 	}
+}
 
-	time.Sleep(1000 * time.Second)
+func main() {
+	selftest()
 }
